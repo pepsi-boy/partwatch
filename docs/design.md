@@ -71,7 +71,7 @@ Render's free tier has free web services, Postgres, and Key Value, but **no back
 | Celery Beat | GitHub Actions cron calls `POST /run-checks` every 3h | Beat in a sleeping container wouldn't fire. GitHub cron can be delayed under load and is disabled after 60 days without repo activity |
 | Waking the service | The cron's request wakes it, and tasks finish in seconds | Cold start adds ~1 minute; retries with long backoff could outlive the 15-minute idle window |
 | Redis | Free Key Value, `noeviction` | In-memory only: a restart drops queued tasks (shows up as a stale run) |
-| Postgres | Free Render Postgres | **Deleted after 30 days.** History resets monthly, and demo mode re-backfills automatically on start |
+| Postgres | Shares the workspace's existing free Postgres (Render allows one per workspace). Tables live in a `partwatch` schema set through `search_path`, and `alembic_version` lives there too, so the two apps' migrations can't collide | Both apps share 1 GB and the same 30-day expiry, and both have the same database credentials. History resets when the database is recreated, and demo mode re-backfills on start |
 | Email | Alerts go to logs and the deals page | Email works locally or on a paid instance (set the SMTP vars) |
 
 The one-container setup trades isolation for cost. On paid Render: separate background worker with Beat embedded (`celery worker --beat`), a paid Postgres, SMTP enabled, and the GitHub cron removed.

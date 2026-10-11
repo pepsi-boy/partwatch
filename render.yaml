@@ -3,6 +3,8 @@
 #   - the Celery worker runs inside the API web service (backend/start.sh)
 #   - .github/workflows/scheduled-checks.yml calls POST /run-checks every 3 hours
 #     instead of Celery Beat (it also wakes the service, which sleeps when idle)
+#   - Render allows one free Postgres per workspace, so PartWatch shares an existing
+#     free database and keeps its tables in their own schema (DB_SCHEMA=partwatch)
 # See docs/design.md for the tradeoffs.
 
 services:
@@ -10,7 +12,7 @@ services:
     name: partwatch-api
     runtime: docker
     plan: free
-    region: oregon
+    region: virginia
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     dockerCommand: ./start.sh
@@ -18,10 +20,11 @@ services:
     # Deploy only after GitHub Actions CI passes on main.
     autoDeployTrigger: checksPass
     envVars:
+      # Internal connection string of the shared free Postgres (same region).
       - key: DATABASE_URL
-        fromDatabase:
-          name: partwatch-db
-          property: connectionString
+        sync: false
+      - key: DB_SCHEMA
+        value: partwatch
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -46,15 +49,9 @@ services:
   - type: keyvalue
     name: partwatch-redis
     plan: free
-    region: oregon
+    region: virginia
     # Queues must never silently drop task messages to free memory.
     maxmemoryPolicy: noeviction
     # Internal connections only.
     ipAllowList: []
 
-databases:
-  - name: partwatch-db
-    plan: free
-    region: oregon
-    databaseName: partwatch
-    user: partwatch

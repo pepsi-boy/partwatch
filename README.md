@@ -121,11 +121,11 @@ Render's free tier doesn't include background workers or cron jobs, and it block
 | Celery worker | `worker` container | Runs in the same container as the API ([`start.sh`](backend/start.sh)) |
 | Scheduler | Celery Beat | GitHub Actions cron calls `POST /run-checks` every 3h ([workflow](.github/workflows/scheduled-checks.yml)) |
 | Redis | `redis` container | Free Key Value (in-memory, not persisted) |
-| PostgreSQL | `postgres` container | Free Postgres. **Expires after 30 days**, then must be recreated |
+| PostgreSQL | `postgres` container | Shares the workspace's one free Postgres, in its own `partwatch` schema. **Free databases expire after 30 days** |
 | Alerts | Email if SMTP is set, else logs | Logs and the deals page (SMTP is blocked) |
 
 Setup:
-1. In Render: **New → Blueprint**, pick this repo. Leave `BESTBUY_API_KEY` blank for demo mode.
+1. In Render: **New → Blueprint**, pick this repo. Set `DATABASE_URL` to a Postgres internal connection string in the same region, and leave `BESTBUY_API_KEY` blank for demo mode.
 2. Copy the service URL and the generated `ADMIN_TOKEN` (service → Environment).
 3. In GitHub: **Settings → Secrets and variables → Actions**. Add the variable `PARTWATCH_URL` and the secret `PARTWATCH_ADMIN_TOKEN`.
 

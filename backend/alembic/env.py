@@ -1,11 +1,11 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool, text
 
 from alembic import context
 from app import models  # noqa: F401  (registers tables on Base.metadata)
 from app.config import get_settings
-from app.db import Base
+from app.db import Base, connect_args
 
 config = context.config
 
@@ -20,6 +20,9 @@ if not config.get_main_option("sqlalchemy.url"):
 
 target_metadata = Base.metadata
 
+# Tests override the schema the same way they override the URL.
+schema = config.get_main_option("db_schema", get_settings().db_schema)
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -33,13 +36,22 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_engine(
+        config.get_main_option("sqlalchemy.url"),
         poolclass=pool.NullPool,
+        connect_args=connect_args(schema),
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        if schema:
+            connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            connection.commit()
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            # Keep alembic_version in our schema too, so it can't collide with another
+            # app's migrations in a shared database.
+            version_table_schema=schema or None,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
