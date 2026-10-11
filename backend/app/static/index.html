@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PartWatch</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e4e4df;
+    --deal: #1a7f4b; --deal-bg: #e3f4ea; --above: #b4441c; --above-bg: #fbe9e1;
+    --normal-bg: #efefeb; --accent: #2f5bd3; --warn-bg: #fff4d6; --warn: #7a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --card: #1e1e1c; --text: #ecece8; --muted: #9a9a94; --line: #30302d;
+      --deal: #5fd395; --deal-bg: #173426; --above: #ff9a73; --above-bg: #3a2119;
+      --normal-bg: #2a2a27; --accent: #8aa8ff; --warn-bg: #3a3014; --warn: #f3d27a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; justify-content: space-between; }
+  h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+  h2 { font-size: 16px; margin: 28px 0 10px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .banner { background: var(--warn-bg); color: var(--warn); padding: 10px 14px; border-radius: 8px; margin-top: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.name { white-space: normal; min-width: 200px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .deal { background: var(--deal-bg); color: var(--deal); }
+  .above_average, .failed, .stale { background: var(--above-bg); color: var(--above); }
+  .normal, .unknown, .running { background: var(--normal-bg); color: var(--muted); }
+  .success { background: var(--deal-bg); color: var(--deal); }
+  .partial { background: var(--warn-bg); color: var(--warn); }
+  svg.spark { display: block; }
+  svg.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+  svg.spark line { stroke: var(--muted); stroke-dasharray: 2 3; stroke-width: 1; }
+  .err { color: var(--above); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>PartWatch</h1>
+    <span class="muted">Best Buy price tracker · <a href="/docs">API docs</a> · <a href="/health">health</a></span>
+  </header>
+  <div id="banner"></div>
+  <div class="stats" id="stats"></div>
+
+  <h2>Tracked parts</h2>
+  <div class="card"><table>
+    <thead><tr><th>Part</th><th>Type</th><th class="num">Price</th><th class="num">30-day avg</th>
+      <th class="num">vs avg</th><th>Status</th><th>Last 30 days</th></tr></thead>
+    <tbody id="parts"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+  </table></div>
+
+  <h2>Recent deals</h2>
+  <div class="card"><table>
+    <thead><tr><th>When</th><th>Part</th><th class="num">Price</th><th class="num">30-day avg</th>
+      <th class="num">Below avg</th><th>Why</th><th>Alerted</th></tr></thead>
+    <tbody id="deals"></tbody>
+  </table></div>
+
+  <h2>Recent runs</h2>
+  <div class="card"><table>
+    <thead><tr><th>Started</th><th>Status</th><th class="num">Checked</th><th class="num">Failed</th>
+      <th class="num">Duration</th><th>Last error</th></tr></thead>
+    <tbody id="runs"></tbody>
+  </table></div>
+</main>
+<script>
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const money = (v) => (v == null ? "—" : "$" + Number(v).toFixed(2));
+  const when = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
+  const label = (s) => esc(String(s).replace("_", " "));
+  const get = (path) => fetch(path).then((r) => { if (!r.ok) throw new Error(path + " " + r.status); return r.json(); });
+
+  function spark(points, avg) {
+    if (points.length < 2) return '<span class="muted">—</span>';
+    const w = 140, h = 32, prices = points.map((p) => p.price);
+    const lo = Math.min(...prices, avg ?? Infinity), hi = Math.max(...prices, avg ?? -Infinity);
+    const y = (v) => (hi === lo ? h / 2 : h - 2 - ((v - lo) / (hi - lo)) * (h - 4));
+    const xy = prices.map((v, i) => `${((i / (prices.length - 1)) * w).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const avgLine = avg == null ? "" : `<line x1="0" x2="${w}" y1="${y(avg)}" y2="${y(avg)}"/>`;
+    return `<svg class="spark" width="${w}" height="${h}" role="img" aria-label="30-day price trend">${avgLine}<polyline points="${xy}"/></svg>`;
+  }
+
+  async function load() {
+    const [status, parts, deals] = await Promise.all([get("/status"), get("/parts"), get("/deals?limit=15")]);
+
+    document.getElementById("banner").innerHTML = status.demo_mode
+      ? '<div class="banner"><b>Demo mode:</b> no Best Buy API key is set, so prices come from the mock provider and SKUs are placeholders.</div>'
+      : "";
+
+    const rate = status.success_rate_7d == null ? "—" : (status.success_rate_7d * 100).toFixed(1) + "%";
+    document.getElementById("stats").innerHTML = [
+      [status.parts_tracked, "parts tracked"],
+      [status.snapshots_last_24h, "price checks, last 24h"],
+      [rate, "run success rate, 7 days"],
+      [status.deals_total, "deals detected"],
+      [when(status.last_successful_run_at), "last successful run"],
+      [esc(status.alert_channel), "alert channel"],
+    ].map(([v, k]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+
+    const histories = await Promise.all(parts.map((p) => get(`/parts/${p.id}/prices?days=30`).catch(() => [])));
+    document.getElementById("parts").innerHTML = parts.map((p, i) => `
+      <tr>
+        <td class="name">${esc(p.name)}${p.active ? "" : ' <span class="muted">(paused)</span>'}<br>
+          <span class="muted">SKU ${esc(p.sku)}${p.target_price ? " · target " + money(p.target_price) : ""}</span></td>
+        <td>${esc(p.category.toUpperCase())}</td>
+        <td class="num">${money(p.current_price)}</td>
+        <td class="num">${money(p.avg_30d)}</td>
+        <td class="num">${p.percent_vs_avg == null ? "—" : (p.percent_vs_avg >= 0 ? "−" : "+") + Math.abs(p.percent_vs_avg).toFixed(1) + "%"}</td>
+        <td><span class="badge ${esc(p.price_status)}">${label(p.price_status)}</span></td>
+        <td>${spark(histories[i], p.avg_30d)}</td>
+      </tr>`).join("") || '<tr><td colspan="7" class="muted">No parts tracked yet. Add one with POST /parts.</td></tr>';
+
+    document.getElementById("deals").innerHTML = deals.map((d) => `
+      <tr>
+        <td>${when(d.detected_at)}</td>
+        <td class="name">${esc(d.part_name)}</td>
+        <td class="num">${money(d.price)}</td>
+        <td class="num">${money(d.baseline_avg)}</td>
+        <td class="num">${Number(d.percent_below).toFixed(1)}%</td>
+        <td>${label(d.reason)}</td>
+        <td>${d.alerted_at ? "✓" : '<span class="muted">pending</span>'}</td>
+      </tr>`).join("") || '<tr><td colspan="7" class="muted">No deals yet.</td></tr>';
+
+    document.getElementById("runs").innerHTML = status.recent_runs.map((r) => `
+      <tr>
+        <td>${when(r.started_at)}</td>
+        <td><span class="badge ${esc(r.status)}">${esc(r.status)}</span></td>
+        <td class="num">${r.parts_checked}/${r.parts_total}</td>
+        <td class="num">${r.failures}</td>
+        <td class="num">${r.duration_seconds == null ? "—" : r.duration_seconds.toFixed(1) + "s"}</td>
+        <td class="name ${r.last_error ? "err" : "muted"}">${esc(r.last_error || "—")}</td>
+      </tr>`).join("") || '<tr><td colspan="6" class="muted">No runs yet.</td></tr>';
+  }
+
+  load().catch((e) => {
+    document.getElementById("banner").innerHTML = `<div class="banner">Couldn't load data: ${esc(e.message)}</div>`;
+  });
+</script>
+</body>
+</html>

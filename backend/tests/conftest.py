@@ -61,3 +61,27 @@ def db(db_engine):
     session.close()
     transaction.rollback()
     connection.close()
+
+
+ADMIN_TOKEN = "test-admin-token"
+
+
+@pytest.fixture
+def client(db, monkeypatch):
+    """API client wired to the rolled-back test session, with a known admin token."""
+    from fastapi.testclient import TestClient
+
+    from app.api import parts
+    from app.db import get_db
+    from app.main import app
+
+    monkeypatch.setattr(get_settings(), "admin_token", ADMIN_TOKEN)
+    monkeypatch.setattr(parts, "_queue_first_check", lambda part_id: None)
+    app.dependency_overrides[get_db] = lambda: db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def admin():
+    return {"Authorization": f"Bearer {ADMIN_TOKEN}"}

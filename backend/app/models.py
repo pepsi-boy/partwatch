@@ -35,7 +35,11 @@ class Part(Base):
     target_price: Mapped[Decimal | None] = mapped_column(Money)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    snapshots: Mapped[list["PriceSnapshot"]] = relationship(back_populates="part")
+    # passive_deletes: let the database's ON DELETE CASCADE remove snapshots and
+    # deals, instead of SQLAlchemy trying to NULL out their part_id.
+    snapshots: Mapped[list["PriceSnapshot"]] = relationship(
+        back_populates="part", passive_deletes=True
+    )
 
 
 class PriceSnapshot(Base):
