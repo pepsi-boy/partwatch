@@ -44,5 +44,38 @@ services:
       redis:
         condition: service_healthy
 
+  worker:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://partwatch:partwatch@postgres:5432/partwatch
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  beat:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://partwatch:partwatch@postgres:5432/partwatch
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    # Schedule state goes in /tmp so it isn't written into the mounted source tree.
+    command: celery -A app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
