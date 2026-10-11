@@ -1,0 +1,26 @@
+name: Scheduled price checks
+
+# Replaces Celery Beat in production: Render's free tier has no always-on worker or
+# cron job, and the web service sleeps after 15 idle minutes. This request wakes it
+# and queues a run. Re-runs in the same window are harmless (idempotent tasks).
+on:
+  schedule:
+    - cron: "0 */3 * * *" # every 3 hours, matching CHECK_INTERVAL_HOURS
+  workflow_dispatch: # allow manual runs from the Actions tab
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    # Skip quietly until the deployment secrets are configured.
+    if: ${{ vars.PARTWATCH_URL != '' }}
+    steps:
+      - name: Wake the API and queue a price check
+        env:
+          PARTWATCH_URL: ${{ vars.PARTWATCH_URL }}
+          ADMIN_TOKEN: ${{ secrets.PARTWATCH_ADMIN_TOKEN }}
+        run: |
+          # A sleeping free instance can take ~1 minute to start, so allow for that.
+          curl --fail --silent --show-error --retry 5 --retry-delay 20 --retry-all-errors \
+            --max-time 120 "$PARTWATCH_URL/health"
+          curl --fail --silent --show-error --retry 3 --retry-delay 10 --max-time 60 \
+            -X POST -H "Authorization: Bearer $ADMIN_TOKEN" "$PARTWATCH_URL/run-checks"

@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,16 @@ class Settings(BaseSettings):
     check_interval_hours: float = 3
     deal_threshold_percent: float = 10
     min_snapshots_for_deal: int = 5
+
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg_driver(cls, url: str) -> str:
+        """Render (and most hosts) hand out postgres:// or postgresql:// URLs. SQLAlchemy
+        needs the driver named explicitly to use psycopg 3."""
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url.removeprefix(prefix)
+        return url
 
 
 @lru_cache

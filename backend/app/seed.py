@@ -18,14 +18,24 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Part
-from app.seed_data import STARTER_PARTS
+from app.seed_data import PLACEHOLDER_PREFIX, STARTER_PARTS
 from app.services.providers import MockBestBuyProvider, is_demo_mode
 from app.services.snapshots import save_snapshot, window_start_for
 
 
 def seed_parts(db: Session) -> int:
-    """Insert starter parts that aren't already tracked. Returns how many were added."""
-    rows = [{k: p[k] for k in ("sku", "name", "category", "target_price")} for p in STARTER_PARTS]
+    """Insert starter parts that aren't already tracked. Returns how many were added.
+
+    Placeholder SKUs are only seeded in demo mode: against the real API they'd
+    404 on every run."""
+    demo = is_demo_mode()
+    rows = [
+        {k: p[k] for k in ("sku", "name", "category", "target_price")}
+        for p in STARTER_PARTS
+        if demo or not p["sku"].startswith(PLACEHOLDER_PREFIX)
+    ]
+    if not rows:
+        return 0
     stmt = insert(Part).values(rows).on_conflict_do_nothing(index_elements=["sku"])
     # rowcount isn't reliable for multi-row inserts with psycopg, so count RETURNING rows.
     added = len(db.execute(stmt.returning(Part.id)).all())
@@ -70,7 +80,9 @@ def main() -> None:
 
     with SessionLocal() as db:
         print(f"Added {seed_parts(db)} starter parts")
-        if args.backfill_days:
+        if args.backfill_days and not is_demo_mode():
+            print("Skipping backfill: BESTBUY_API_KEY is set, so history comes from real checks")
+        elif args.backfill_days:
             interval = get_settings().check_interval_hours
             added = backfill_history(db, args.backfill_days, interval)
             print(f"Backfilled {added} mock snapshots over {args.backfill_days} days")

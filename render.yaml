@@ -1,0 +1,60 @@
+# Render Blueprint: everything on the free tier.
+# Render has no free background workers or cron jobs, so:
+#   - the Celery worker runs inside the API web service (backend/start.sh)
+#   - .github/workflows/scheduled-checks.yml calls POST /run-checks every 3 hours
+#     instead of Celery Beat (it also wakes the service, which sleeps when idle)
+# See docs/design.md for the tradeoffs.
+
+services:
+  - type: web
+    name: partwatch-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: ./start.sh
+    healthCheckPath: /health
+    # Deploy only after GitHub Actions CI passes on main.
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: partwatch-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: partwatch-redis
+          property: connectionString
+      - key: ADMIN_TOKEN
+        generateValue: true
+      # Leave blank to run in demo mode (mock prices). Set it once your key arrives.
+      - key: BESTBUY_API_KEY
+        sync: false
+      - key: CHECK_INTERVAL_HOURS
+        value: "3"
+      - key: DEAL_THRESHOLD_PERCENT
+        value: "10"
+      - key: MIN_SNAPSHOTS_FOR_DEAL
+        value: "5"
+      - key: BESTBUY_RATE_LIMIT
+        value: "4/s"
+      # SMTP is intentionally unset: free instances block outbound SMTP ports, so
+      # alerts go to the logs and the dashboard.
+
+  - type: keyvalue
+    name: partwatch-redis
+    plan: free
+    region: oregon
+    # Queues must never silently drop task messages to free memory.
+    maxmemoryPolicy: noeviction
+    # Internal connections only.
+    ipAllowList: []
+
+databases:
+  - name: partwatch-db
+    plan: free
+    region: oregon
+    databaseName: partwatch
+    user: partwatch

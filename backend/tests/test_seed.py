@@ -20,13 +20,13 @@ def count(db, model) -> int:
     return db.scalar(select(func.count()).select_from(model))
 
 
-def test_seed_parts_is_idempotent(db):
+def test_seed_parts_is_idempotent(db, demo_mode):
     assert seed_parts(db) == len(STARTER_PARTS)
     assert seed_parts(db) == 0
     assert count(db, Part) == len(STARTER_PARTS)
 
 
-def test_seed_sets_target_prices(db):
+def test_seed_sets_target_prices(db, demo_mode):
     seed_parts(db)
     gpu = db.scalar(select(Part).where(Part.sku == "0000001"))
     assert str(gpu.target_price) == "499.99"
@@ -48,3 +48,9 @@ def test_backfill_refused_with_real_api_key(db, monkeypatch):
     monkeypatch.setattr(get_settings(), "bestbuy_api_key", "real-key")
     with pytest.raises(RuntimeError):
         backfill_history(db, days=1, interval_hours=3, now=NOW)
+
+
+def test_placeholder_parts_not_seeded_with_real_api_key(db, monkeypatch):
+    monkeypatch.setattr(get_settings(), "bestbuy_api_key", "real-key")
+    assert seed_parts(db) == 0
+    assert count(db, Part) == 0
