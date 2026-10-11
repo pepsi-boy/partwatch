@@ -49,7 +49,7 @@ def bestbuy(monkeypatch):
 
     monkeypatch.setattr(
         tasks,
-        "make_client",
+        "make_provider",
         lambda: BestBuyClient("test-key", transport=httpx.MockTransport(handler)),
     )
     return prices

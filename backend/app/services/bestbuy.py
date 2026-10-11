@@ -42,6 +42,8 @@ class ProductPrice:
 
 
 class BestBuyClient:
+    name = "bestbuy"
+
     def __init__(
         self,
         api_key: str,
@@ -105,19 +107,32 @@ def _raise_for_status(resp: httpx.Response, sku: str) -> None:
 def _parse_product(resp: httpx.Response, sku: str) -> ProductPrice:
     try:
         data = resp.json()
+    except ValueError:
+        raise BestBuyError(f"Unexpected response for SKU {sku}: not JSON") from None
+    return parse_product(data, sku)
+
+
+def parse_product(data: dict, sku: str) -> ProductPrice:
+    """Turn a Products API JSON object into a ProductPrice.
+
+    Shared by the real client and the mock provider, so demo mode runs the same
+    parsing code as production.
+    """
+    try:
         sale_price = data["salePrice"]
         if sale_price is None:
             raise KeyError("salePrice")
         regular = data.get("regularPrice")
         return ProductPrice(
-            sku=str(data.get("sku", sku)),
+            # Keep the requested SKU: the API returns it as an int, which drops leading zeros.
+            sku=sku,
             name=data.get("name") or "",
             price=_to_money(sale_price),
             regular_price=_to_money(regular) if regular is not None else None,
             on_sale=bool(data.get("onSale", False)),
             in_stock=bool(data.get("onlineAvailability", False)),
         )
-    except (ValueError, KeyError, TypeError, InvalidOperation) as exc:
+    except (KeyError, TypeError, AttributeError, InvalidOperation) as exc:
         raise BestBuyError(f"Unexpected response for SKU {sku}: {exc!r}") from None
 
 

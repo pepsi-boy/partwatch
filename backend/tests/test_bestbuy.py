@@ -10,6 +10,7 @@ from app.services.bestbuy import (
     BestBuyError,
     ProductNotFound,
     RetryableBestBuyError,
+    parse_product,
 )
 
 API_KEY = "test-key-secret"
@@ -131,3 +132,27 @@ def test_timeouts_are_configured():
 def test_requires_api_key():
     with pytest.raises(BestBuyError):
         BestBuyClient("")
+
+
+def test_parse_product_ignores_extra_fields():
+    """Best Buy can return more fields than we ask for; parsing must not depend on them."""
+    data = {**PRODUCT, "upc": "812674026069", "customerReviewAverage": 4.7, "categoryPath": []}
+    assert parse_product(data, "6521430").price == Decimal("479.99")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {**PRODUCT, "salePrice": None},
+        {**PRODUCT, "salePrice": "not a number"},
+        {k: v for k, v in PRODUCT.items() if k != "salePrice"},
+        ["not", "an", "object"],
+    ],
+)
+def test_parse_product_rejects_bad_data(data):
+    with pytest.raises(BestBuyError):
+        parse_product(data, "6521430")
+
+
+def test_parse_product_rounds_to_cents():
+    assert parse_product({**PRODUCT, "salePrice": 479.989}, "1").price == Decimal("479.99")

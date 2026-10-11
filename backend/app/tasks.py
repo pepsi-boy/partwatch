@@ -17,7 +17,7 @@ from app.celery_app import celery_app
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Part
-from app.services.bestbuy import BestBuyClient
+from app.services.providers import PriceProvider, get_provider
 from app.services.snapshots import save_snapshot, window_start_for
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,8 @@ def get_session() -> Iterator[Session]:
         db.close()
 
 
-def make_client() -> BestBuyClient:
-    return BestBuyClient(get_settings().bestbuy_api_key)
+def make_provider() -> PriceProvider:
+    return get_provider()
 
 
 @celery_app.task(name="app.tasks.check_all_prices")
@@ -65,8 +65,8 @@ def check_part_price(part_id: int, window_start: str) -> int | None:
             logger.info("Skipping part %s: missing or inactive", part_id)
             return None
 
-        with make_client() as client:
-            product = client.get_product(part.sku)
+        with make_provider() as provider:
+            product = provider.get_product(part.sku)
 
         snapshot = save_snapshot(db, part.id, product, datetime.now(UTC), window)
         if snapshot is None:
