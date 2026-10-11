@@ -6,6 +6,7 @@ can't break the whole run, and the tasks can be spread across many workers.
 """
 
 import logging
+import smtplib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -16,7 +17,9 @@ from sqlalchemy.orm import Session
 from app.celery_app import celery_app
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Part
+from app.models import Deal, Part
+from app.services.alerts import format_alert, get_sender
+from app.services.deal_finder import find_deal
 from app.services.providers import PriceProvider, get_provider
 from app.services.snapshots import save_snapshot, window_start_for
 
@@ -74,4 +77,38 @@ def check_part_price(part_id: int, window_start: str) -> int | None:
             return None
 
         logger.info("Part %s (%s) price %s", part.id, part.sku, snapshot.price)
+
+        deal = find_deal(db, part, snapshot, get_settings())
+        if deal is not None:
+            logger.info("Deal found for part %s: deal %s", part.id, deal.id)
+            # Separate task: an email failure retries on its own and can never undo
+            # the saved snapshot or deal.
+            send_deal_alert.delay(deal.id)
+
         return snapshot.id
+
+
+@celery_app.task(
+    name="app.tasks.send_deal_alert",
+    autoretry_for=(smtplib.SMTPException, OSError),
+    retry_backoff=30,  # 30s, 60s, 120s, ... between attempts
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=5,
+)
+def send_deal_alert(deal_id: int) -> bool:
+    """Send the alert for a deal once. Returns False if it was already sent."""
+    with get_session() as db:
+        deal = db.get(Deal, deal_id)
+        if deal is None or deal.alerted_at is not None:
+            return False
+        part = db.get(Part, deal.part_id)
+
+        sender = get_sender()
+        subject, body = format_alert(part, deal)
+        sender.send(subject, body)
+
+        deal.alerted_at = datetime.now(UTC)
+        db.commit()
+        logger.info("Alert sent for deal %s via %s", deal.id, sender.channel)
+        return True

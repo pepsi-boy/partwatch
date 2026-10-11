@@ -71,6 +71,8 @@ class Deal(Base):
         ForeignKey("price_snapshots.id", ondelete="CASCADE"), unique=True
     )
     price: Mapped[Decimal] = mapped_column(Money)
+    # "below_average" or "below_target" (see services/deals.py)
+    reason: Mapped[str] = mapped_column(String(16), server_default="below_average")
     baseline_avg: Mapped[Decimal] = mapped_column(Money)
     percent_below: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     detected_at: Mapped[datetime] = mapped_column(

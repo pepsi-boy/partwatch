@@ -10,7 +10,8 @@ from app.db import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the app's loggers enabled when migrations run in-process (e.g. tests).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The URL comes from DATABASE_URL, never from alembic.ini, so no credentials are
 # committed. Tests set sqlalchemy.url explicitly to point at the test database.
