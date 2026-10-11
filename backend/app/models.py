@@ -30,6 +30,8 @@ class Part(Base):
     name: Mapped[str] = mapped_column(String(255))
     category: Mapped[str] = mapped_column(String(64))
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Optional: alert when the price is at or below this, regardless of the average.
+    target_price: Mapped[Decimal | None] = mapped_column(Money)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     snapshots: Mapped[list["PriceSnapshot"]] = relationship(back_populates="part")
