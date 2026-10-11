@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     bestbuy_api_key: str = ""
+    # Celery rate limit per worker. Best Buy allows 5 calls/sec per key, so with
+    # N workers set this to about 4/N per second.
+    bestbuy_rate_limit: str = "4/s"
     database_url: str = "postgresql+psycopg://partwatch:partwatch@localhost:5432/partwatch"
     redis_url: str = "redis://localhost:6379/0"
 
