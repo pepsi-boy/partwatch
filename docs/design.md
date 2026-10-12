@@ -71,12 +71,19 @@ Render's free tier has free web services, Postgres, and Key Value, but **no back
 | Celery Beat | GitHub Actions cron calls `POST /run-checks` every 3h | Beat in a sleeping container wouldn't fire. GitHub cron can be delayed under load and is disabled after 60 days without repo activity |
 | Waking the service | The cron's request wakes it, and tasks finish in seconds | Cold start adds ~1 minute; retries with long backoff could outlive the 15-minute idle window |
 | Redis | Free Key Value, `noeviction` | In-memory only: a restart drops queued tasks (shows up as a stale run) |
+| Dashboard | Separate free Node web service | Also sleeps when idle, so a cold visit can wake both the dashboard and the API |
 | Postgres | Shares the workspace's existing free Postgres (Render allows one per workspace). Tables live in a `partwatch` schema set through `search_path`, and `alembic_version` lives there too, so the two apps' migrations can't collide | Both apps share 1 GB and the same 30-day expiry, and both have the same database credentials. History resets when the database is recreated, and demo mode re-backfills on start |
 | Email | Alerts go to logs and the deals page | Email works locally or on a paid instance (set the SMTP vars) |
 
 The one-container setup trades isolation for cost. On paid Render: separate background worker with Beat embedded (`celery worker --beat`), a paid Postgres, SMTP enabled, and the GitHub cron removed.
 
-## 8. Testing strategy
+## 8. Dashboard
+
+- **Server-side data fetching.** Pages are React Server Components that call the API from the Next.js server. The browser gets finished HTML, so the API needs no CORS setup and its address stays out of the browser. The cost: every page view makes a server-to-server request, and a sleeping free-tier API makes the first view slow. The fetch timeout is 90 seconds and a loading screen explains the wait.
+- **The chart** shows price as a step line, because a price holds until the next check, rather than interpolating between checks. The 30-day average and target are labeled dashed reference lines, and deals are marked points. Hovering shows a crosshair tooltip, and every chart has a table view, so the data isn't only available visually. Badges always pair color with an icon and a label.
+- **Sizing:** the chart measures its container on mount and follows it with a `ResizeObserver`, instead of Recharts' `ResponsiveContainer`, which draws nothing until its first resize event.
+
+## 9. Testing strategy
 
 - **Pure unit tests:** deal rules, check windows, backoff schedule, response parsing.
 - **Integration tests against real Postgres:** the test database is migrated with Alembic (so migrations are tested too), and each test runs in a transaction that's rolled back.

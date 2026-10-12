@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/pepsi-boy/partwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/pepsi-boy/partwatch/actions/workflows/ci.yml)
 
+**Live demo:** [dashboard](https://partwatch-dashboard.onrender.com) · [API docs](https://partwatch-api.onrender.com/docs) (free tier: the first visit after a quiet spell takes up to a minute while the services wake up)
+
 A self-running PC parts price tracker. On a schedule it fetches the current Best Buy price of every tracked part, builds a price history, and flags real deals: prices well below the part's 30-day average, or below a target price you set. Every deal triggers an alert.
 
 I build and sell custom PCs, and I wanted to know when parts are actually worth buying without checking prices by hand.
@@ -16,23 +18,25 @@ I build and sell custom PCs, and I wanted to know when parts are actually worth 
   - at least 10% below the 30-day average, once a part has at least 5 snapshots (so new parts can't false-alarm), or
   - at or below the part's target price, if you set one.
 - **Alerts once per deal.** It doesn't re-alert at the same price. It alerts again if the price drops further, or after the price recovers and drops again.
-- **Shows it all** on a status page (`/`) and in interactive API docs (`/docs`).
+- **Shows it all** on a Next.js dashboard: tracked parts with deal badges, a price history chart per part, a deals feed, and a system status page. The API also has interactive docs (`/docs`).
 
 ## Architecture
 
 ```mermaid
 flowchart TD
     beat["Celery Beat<br/>(scheduler)"] -->|every N hours| redis[(Redis<br/>queue)]
-    api["FastAPI<br/>REST API + status page"] -->|POST /run-checks| redis
+    api["FastAPI<br/>REST API"] -->|POST /run-checks| redis
     redis --> worker["Celery worker(s)"]
     worker -->|one task per part| provider{{"PriceProvider<br/>Best Buy API or mock"}}
     worker --> pg[(PostgreSQL)]
     worker -->|deal found| alert["Alert task<br/>SMTP email or log"]
     api --> pg
+    web["Next.js dashboard<br/>(Recharts)"] -->|server-side fetch| api
 ```
 
 - **Fan-out:** the scheduled `check_all_prices` task queues one `check_part_price` task per part. One failing SKU can't break the run, and more workers means more parallelism.
 - **Provider interface:** tasks fetch prices through `PriceProvider`. The real Best Buy client is used when `BESTBUY_API_KEY` is set, and the mock otherwise. Both go through the same response parser.
+- **Dashboard:** Next.js server components fetch from the API on the server, so the browser never calls the API directly (no CORS, and the API address isn't exposed to the browser).
 - **Pure deal logic:** the rules live in [`services/deals.py`](backend/app/services/deals.py), with no database or I/O, so every edge case is unit tested.
 
 Design decisions and tradeoffs are written up in [`docs/design.md`](docs/design.md).
@@ -51,7 +55,9 @@ Design decisions and tradeoffs are written up in [`docs/design.md`](docs/design.
 
 ## Tech stack
 
-FastAPI · SQLAlchemy + Alembic · PostgreSQL · Celery + Celery Beat · Redis · httpx · pytest · ruff · Docker Compose · GitHub Actions · Render
+**Backend:** FastAPI · SQLAlchemy + Alembic · PostgreSQL · Celery + Celery Beat · Redis · httpx · pytest · ruff
+**Frontend:** Next.js (App Router, TypeScript) · Recharts
+**Ops:** Docker Compose · GitHub Actions · Render
 
 ## Run locally
 
@@ -60,15 +66,16 @@ Requires Docker.
 ```bash
 git clone https://github.com/pepsi-boy/partwatch.git && cd partwatch
 cp .env.example .env          # optional: set ADMIN_TOKEN to use the write endpoints
-docker compose up --build     # api, worker, beat, postgres, redis
+docker compose up --build     # api, worker, beat, postgres, redis, web
 
 # In another terminal: add starter parts plus 30 days of mock history (demo mode)
 docker compose exec api python -m app.seed --backfill-days 30
 ```
 
 Then open:
-- http://localhost:8000: status page (parts, price trends, deals, runs)
+- http://localhost:3000: dashboard (set `WEB_PORT` if 3000 is taken)
 - http://localhost:8000/docs: interactive API docs
+- http://localhost:8000: a minimal built-in status page, handy when the dashboard isn't running
 
 Beat triggers a check every `CHECK_INTERVAL_HOURS`. To run one now:
 
@@ -105,9 +112,10 @@ curl -X POST localhost:8000/parts \
 ```bash
 docker compose exec api pytest
 docker compose exec api ruff check . && docker compose exec api ruff format --check .
+cd frontend && npm run lint && npm run build && npm run typecheck
 ```
 
-Tests run against a real PostgreSQL test database (migrated with Alembic, rolled back after each test). Best Buy responses and SMTP are always mocked, so the suite never calls the real API or sends email. CI runs the same suite on every push, with Postgres and Redis service containers.
+Tests run against a real PostgreSQL test database (migrated with Alembic, rolled back after each test). Best Buy responses and SMTP are always mocked, so the suite never calls the real API or sends email. CI runs the same suite on every push, with Postgres and Redis service containers, plus lint, build, and typecheck for the dashboard. Render deploys only after both jobs pass.
 
 ## Deployment (Render, free tier)
 
@@ -117,6 +125,7 @@ Render's free tier doesn't include background workers or cron jobs, and it block
 
 | Piece | Local | Render free tier |
 |---|---|---|
+| Dashboard | `web` container | Free Node web service |
 | API | `api` container | Free web service |
 | Celery worker | `worker` container | Runs in the same container as the API ([`start.sh`](backend/start.sh)) |
 | Scheduler | Celery Beat | GitHub Actions cron calls `POST /run-checks` every 3h ([workflow](.github/workflows/scheduled-checks.yml)) |
@@ -149,6 +158,10 @@ backend/
     seed.py            starter parts + demo backfill
   alembic/             migrations
   tests/
+frontend/
+  app/                 Next.js pages: parts, part detail, deals, status
+  components/          PriceChart (Recharts), badges, stat tiles
+  lib/                 typed API client, formatting, chart helpers
 docs/design.md         design decisions and tradeoffs
 render.yaml            Render blueprint
 ```

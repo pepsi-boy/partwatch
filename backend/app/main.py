@@ -10,7 +10,7 @@ configure_logging()
 
 app = FastAPI(
     title="PartWatch API",
-    version="0.1.0",
+    version="1.0.0",
     description=(
         "Tracks Best Buy prices for PC parts, keeps price history, and detects deals. "
         "Write routes need `Authorization: Bearer <ADMIN_TOKEN>` (use the Authorize button)."
