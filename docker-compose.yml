@@ -77,5 +77,21 @@ services:
       redis:
         condition: service_healthy
 
+  web:
+    build: ./frontend
+    environment:
+      # Server-side fetches go container-to-container; links in the browser use localhost.
+      API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      # Keep the container's own node_modules and build cache, not the host's.
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api
+
 volumes:
   pgdata:
