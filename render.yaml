@@ -46,6 +46,25 @@ services:
       # SMTP is intentionally unset: free instances block outbound SMTP ports, so
       # alerts go to the logs and the dashboard.
 
+  - type: web
+    name: partwatch-dashboard
+    runtime: node
+    plan: free
+    region: virginia
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Pages are rendered on the server, which fetches from the API here.
+      - key: API_URL
+        value: https://partwatch-api.onrender.com
+      # Inlined at build time; used for the "API docs" link.
+      - key: NEXT_PUBLIC_API_URL
+        value: https://partwatch-api.onrender.com
+
   - type: keyvalue
     name: partwatch-redis
     plan: free
